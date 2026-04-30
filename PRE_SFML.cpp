@@ -85,6 +85,22 @@ pair<int, int> random_coord(const Grid& world) {
         rand_int(0, world.getHeight() - 1) };
 }
 
+struct GameEvent {
+    string message;
+};
+
+struct EventBuffer { //"Carousel of Doom. inspired by Doom's circular buffer/event queue. Interesting for learning purposes. 
+    static constexpr int MAXEVENTS = 16;
+
+    GameEvent events[MAXEVENTS]; //Array.
+    int eventhead = 0;
+    int eventtail = 0;
+};
+
+void D_PostEvent(EventBuffer& buffer, GameEvent event) {
+    buffer.events[buffer.eventhead] = event;
+    buffer.eventhead = (buffer.eventhead + 1) % EventBuffer::MAXEVENTS;
+}
 
 struct LakeData {
     pair<int, int> seed;
@@ -101,7 +117,7 @@ LakeData generate_lake(const Grid& world) {
 
      lake.seed = {
          rand_int(0, max_x),
-         rand_int(0, max_y)`
+         rand_int(0, max_y)
      };
 
      return lake;
@@ -118,22 +134,16 @@ void create_lake(Grid& world, LakeData lake) { //simplify parameters by putting 
         }
 }
 
-struct GameEvent {
-    string message;
-};
+void create_lakes(Grid& world, EventBuffer& eventBuffer, int lake_count) {
+    for (int i = 0; i < lake_count; i++) {
+        LakeData lake = generate_lake(world);
+        create_lake(world, lake);
 
-struct EventBuffer { //"Carousel of Doom. inspired by Doom's circular buffer/event queue. Interesting for learning purposes. 
-    static constexpr int MAXEVENTS = 16;
-    
-    GameEvent events[MAXEVENTS]; //Array.
-    int eventhead = 0;
-    int eventtail = 0;
-};
-
-void D_PostEvent(EventBuffer& buffer, string message) {
-    buffer.events[buffer.eventhead] = message;
-    buffer.eventhead = (buffer.eventhead + 1) % buffer.events.size();
+        D_PostEvent(eventBuffer, { "Lake generated" });
+    }
 }
+
+
 
 
 int main()
@@ -141,6 +151,8 @@ int main()
     int x = 0;
     int y = 0;
     const float speed = 700.f;
+
+    EventBuffer eventBuffer;
 
     Grid world(160, 90); 
 
@@ -150,9 +162,14 @@ int main()
     pair<int, int> playerCapital = random_coord(world);
     world.get(playerCapital.first, playerCapital.second).ownerId = 0;
 
+    D_PostEvent(eventBuffer, { "Capital founded" });
+
     LakeData lake = generate_lake(world);
 
-    create_lake(world, lake);
+    int lake_count = rand_int(3 , 7);
+    create_lakes(world, eventBuffer, lake_count);
+
+    D_PostEvent(eventBuffer, { "Lake generated" });
     
     //world.get(5, 4).terrain = TerrainType::Water;
 
