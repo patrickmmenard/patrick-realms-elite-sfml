@@ -23,6 +23,15 @@ enum class MapView {
     Underground
 };
 
+void toggle_map_view(MapView& currentView) {
+    if (currentView == MapView::Surface) {
+        currentView = MapView::Underground;
+    }
+    else {
+        currentView = MapView::Surface;
+    }
+}
+
 struct Tile {                           // in a struct, members are public by default.
     TerrainType terrain = TerrainType::Plain;
     ResourceType resource = ResourceType::None;
@@ -123,6 +132,25 @@ LakeData generate_lake(const Grid& world) {
      return lake;
 }
 
+void paint_water(Tile& tile) {
+    tile.terrain = TerrainType::Water;
+}
+
+void paint_oil(Tile& tile) {
+    tile.resource = ResourceType::Oil;
+}
+
+void paint_lake(Grid& world, LakeData lake, void (*paint)(Tile&)) {
+    int lx = lake.seed.first;
+    int ly = lake.seed.second;
+
+    for (int y = ly; y < ly + lake.size; y++) {
+        for (int x = lx; x < lx + lake.size; x++) {
+            paint(world.get(x, y));
+        }
+    }
+}
+
 void create_lake(Grid& world, LakeData lake) { //simplify parameters by putting lake_seed and size in a class
     int lx = lake.seed.first;
     int ly = lake.seed.second;
@@ -134,17 +162,30 @@ void create_lake(Grid& world, LakeData lake) { //simplify parameters by putting 
         }
 }
 
-void create_lakes(Grid& world, EventBuffer& eventBuffer, int lake_count) {
+void create_lakes(Grid& world, EventBuffer& eventBuffer, int lake_count, void(*paint)(Tile&), string message) {
     for (int i = 0; i < lake_count; i++) {
         LakeData lake = generate_lake(world);
-        create_lake(world, lake);
+   
+        paint_lake(world, lake, paint);
 
-        D_PostEvent(eventBuffer, { "Lake generated" });
+        D_PostEvent(eventBuffer, { message });
     }
 }
 
-
-
+Color get_tile_color(const Tile& tile, MapView currentView) {
+    if (currentView == MapView::Surface && tile.terrain == TerrainType::Water) {
+        return Color::Blue;
+    }
+    else if (currentView == MapView::Surface) {
+        return Color::Green;
+    }
+    else if (currentView == MapView::Underground && tile.resource == ResourceType::Oil) {
+        return Color::Black;
+    }
+    else {
+        return Color(90, 70, 45);
+    }
+}
 
 int main()
 {
@@ -165,12 +206,13 @@ int main()
     D_PostEvent(eventBuffer, { "Capital founded" });
 
     LakeData lake = generate_lake(world);
-
     int lake_count = rand_int(3 , 7);
-    create_lakes(world, eventBuffer, lake_count);
+    create_lakes(world, eventBuffer, lake_count, paint_water, "Lake generated");
 
-    D_PostEvent(eventBuffer, { "Lake generated" });
-    
+    LakeData oilLake = generate_lake(world);
+    int oilLake_count = rand_int(2, 5);
+    create_lakes(world, eventBuffer, oilLake_count, paint_oil, "Oil lake generated");
+
     //world.get(5, 4).terrain = TerrainType::Water;
 
     //VideoMode mode({ 800u, 600u });
@@ -178,6 +220,8 @@ int main()
     RenderWindow window(desktop, "SFML works!", State::Fullscreen);
     window.setFramerateLimit(60);
     View camera = window.getDefaultView();
+
+    MapView currentView = MapView::Surface;
 
     Clock clock;
 
@@ -206,6 +250,10 @@ int main()
         }
         
         //Camera input
+        if (Keyboard::isKeyPressed(Keyboard::Key::Tab)) {
+            toggle_map_view(currentView);
+        }
+
         if (Keyboard::isKeyPressed(Keyboard::Key::Left)) {
             camera.move(Vector2f(-speed * deltaTime, 0.f));
         }
@@ -233,15 +281,13 @@ int main()
             for (int x = 0; x < world.getWidth(); x++) {
                 sq_tile.setPosition(Vector2f(x * sq_tile_size, y * sq_tile_size));
 
-                if (world.get(x, y).terrain == TerrainType::Water) {
-                    sq_tile.setFillColor(Color::Blue);
-                }
-                else { sq_tile.setFillColor(Color::Green); }
-
+                Tile& tile = world.get(x, y);
+                sq_tile.setFillColor(get_tile_color(tile, currentView));
+                
                 window.draw(sq_tile);
-                window.draw(capitalMarker);
             }
         }
+        window.draw(capitalMarker);
    
        //Display
         window.display();
