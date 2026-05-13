@@ -4,6 +4,7 @@
 #include <vector>
 #include <string>
 #include <utility>
+#include <iostream>
 
 using namespace sf;
 using namespace std;
@@ -23,6 +24,21 @@ enum class MapView {
     Underground
 };
 
+enum class MenuView {
+    Main,
+    Production, 
+    Diplomacy,
+    War,
+    Bank,
+    CivilianAffairs,
+    Status
+};
+
+enum class GameAction {
+    EndYearTurn,
+    Quit
+};
+
 void toggle_map_view(MapView& currentView) {
     if (currentView == MapView::Surface) {
         currentView = MapView::Underground;
@@ -38,23 +54,24 @@ struct Tile {                           // in a struct, members are public by de
     int ownerId = -1;
 };
 
-class Grid {                            //in a class, members are private by default. 
+class Grid {                            //in a class, members are private by default. Classes are blueprints/types.
 
 private:
-    int width;
+    int width;                          //Member variable.
     int height;
-    vector<Tile> tiles;
+    vector<Tile> tiles;                 //This is encapsulation == hide internal data, expose controlled functions.
 
 public:
-    Grid(int w, int h) : width(w), height(h), tiles(w*h) { // : != ::.Here, ':' does not mean "belong
+    Grid(int w, int h) : width(w), height(h), tiles(w*h) { // : != ::   Here, ':' does not mean "belong
                                                       //to a class; instead ": starts the member initializer list". 
     }
 
-    int getWidth() const {
+    int getWidth() const {                      //All examples of OOP, because it's all centered around the Grid object (only the instanciation of Grid
+                                                //will be an object. OOP; data and operations are grouped.
         return width;
     }
 
-    int getHeight() const {
+    int getHeight() const {                     //Member function.
         return height;
     }
 
@@ -94,6 +111,104 @@ pair<int, int> random_coord(const Grid& world) {
         rand_int(0, world.getHeight() - 1) };
 }
 
+class Button {
+private:
+    RectangleShape shape;
+    Text label;
+
+public:
+    Button(Vector2f position, Vector2f size, Color color,
+        const Font& font, string text) : label(font)
+    {
+        shape.setPosition(position);
+        shape.setSize(size);
+        shape.setFillColor(color);
+
+        label.setString(text);
+        label.setCharacterSize(18);
+        label.setFillColor(Color::White);
+        label.setPosition(Vector2f(position.x + 18.f,
+            position.y + 8.f));
+    }
+
+    bool isClicked(Vector2f mousePos) const {
+        return shape.getGlobalBounds().contains(mousePos);
+    }
+
+    void draw(RenderWindow& window) const {
+        window.draw(shape);
+        window.draw(label);
+    }
+};
+
+class Panel {
+private:
+    RectangleShape shape;
+    Vector2f position;
+    Vector2f size = Vector2f(320.f, 260.f);
+    float padding = 20.f;
+    float spacing = 40.f;
+    int rowCount = 0;
+
+public:
+    Panel(Vector2f startPosition) :position(startPosition) {
+        shape.setPosition(startPosition);
+        shape.setSize(size);
+        shape.setFillColor(Color(45, 45, 60));
+    }
+
+    Vector2f nextRowPosition(){
+               Vector2f result(position.x + padding,
+                               position.y + padding + rowCount * spacing);
+
+               rowCount++;
+               resizeToContent();
+
+               return result;
+    }
+
+    void resizeToContent() {
+        size.y = padding * 2.f + rowCount * spacing;
+        shape.setSize(size);
+    }
+
+    void resizeForRows(int rows) {
+        rowCount = rows;
+        resizeToContent();
+    }
+
+    void draw(RenderWindow& window) const {
+        window.draw(shape);
+    }
+};
+
+struct MenuButton {
+    Button button;
+    MenuView targetMenu;
+};
+
+Vector2f stackedPosition(Vector2f start,
+                        int index,
+                        float spacing) {
+    return Vector2f(start.x,
+                    start.y + index * spacing);
+}
+
+struct ProductionItem {
+    string name;
+    int percentage = 0;
+};
+
+int totalProductionPercent(const vector<ProductionItem>& items) {
+    int total = 0;
+
+    for (const ProductionItem& item: items) {
+        total += item.percentage;
+    }
+
+    return total;
+}
+
 struct GameEvent {
     string message;
 };
@@ -108,7 +223,7 @@ struct EventBuffer { //"Carousel of Doom. inspired by Doom's circular buffer/eve
 
 void D_PostEvent(EventBuffer& buffer, GameEvent event) {
     buffer.events[buffer.eventhead] = event;
-    buffer.eventhead = (buffer.eventhead + 1) % EventBuffer::MAXEVENTS;
+    buffer.eventhead = (buffer.eventhead + 1) % EventBuffer::MAXEVENTS; //New events are logged at eventhead; eventhead rotates thru fixed array.
 }
 
 struct LakeData {
@@ -177,7 +292,7 @@ Color get_tile_color(const Tile& tile, MapView currentView) {
         return Color::Blue;
     }
     else if (currentView == MapView::Surface) {
-        return Color::Green;
+        return Color(15,90,30);
     }
     else if (currentView == MapView::Underground && tile.resource == ResourceType::Oil) {
         return Color::Black;
@@ -189,13 +304,15 @@ Color get_tile_color(const Tile& tile, MapView currentView) {
 
 int main()
 {
+    //SETUP
+
     int x = 0;
     int y = 0;
     const float speed = 700.f;
 
     EventBuffer eventBuffer;
 
-    Grid world(160, 90); 
+    Grid world(160, 90);
 
     int grid_width = world.getWidth();
     int grid_height = world.getHeight();
@@ -206,7 +323,7 @@ int main()
     D_PostEvent(eventBuffer, { "Capital founded" });
 
     LakeData lake = generate_lake(world);
-    int lake_count = rand_int(3 , 7);
+    int lake_count = rand_int(3, 7);
     create_lakes(world, eventBuffer, lake_count, paint_water, "Lake generated");
 
     LakeData oilLake = generate_lake(world);
@@ -222,22 +339,141 @@ int main()
     View camera = window.getDefaultView();
 
     MapView currentView = MapView::Surface;
+    MenuView currentMenu = MenuView::Main;
 
     Clock clock;
 
     float sq_tile_size = 32.f;
+    float mapPixelWidth = world.getWidth() * sq_tile_size;
+
+    float mapPixelHeight = world.getHeight() * sq_tile_size;
+
+    camera.setSize(Vector2f(mapPixelWidth, mapPixelHeight));
+
+    camera.setCenter(Vector2f(mapPixelWidth / 2.f, mapPixelHeight / 2.f
+    ));
+
     RectangleShape sq_tile(Vector2f(sq_tile_size, sq_tile_size));
     sq_tile.setOutlineThickness(1.f);
-    sq_tile.setOutlineColor(Color(30,80,30));   //RGB: red, green, blue values
+    sq_tile.setOutlineColor(Color(30, 80, 30));   //RGB: red, green, blue values
 
     float capitalMarker_size = 8.f;
     CircleShape capitalMarker(capitalMarker_size);
     capitalMarker.setFillColor(Color::Red);
-    capitalMarker.setPosition(Vector2f(playerCapital.first * sq_tile_size ,
-        playerCapital.second * sq_tile_size));
+    capitalMarker.setPosition(Vector2f(playerCapital.first* sq_tile_size,
+        playerCapital.second* sq_tile_size));
 
+
+    Vector2f menuButtonStart(1620.f, 200.f);
+    Vector2f buttonSize(140.f, 40.f);
+    float buttonSpacing = 50.f;
+    float textSpacing = 40.f;
+
+    Font uiFont;
+    if (!uiFont.openFromFile("arial.ttf")) {
+        return 1;
+    }
+
+    auto makeText = [&uiFont](string value, Vector2f position) {        //makeText is a variable holding a lambda. It is a callable object. not a normal function. 
+        Text text(uiFont);
+        text.setString(value);
+        text.setCharacterSize(18);
+        text.setFillColor(Color::White);
+        text.setPosition(position);
+        return text;
+    };
+
+    Vector2f mapButtonStart(1620.f, 80.f);
+
+    Button surfaceButton(
+        Vector2f(1620.f, 80.f),
+        Vector2f(140.f, 40.f),
+        Color(60, 90, 60),
+        uiFont, "Surface"
+    );
+
+    Button undergroundButton(
+        Vector2f(1620.f, 130.f),
+        Vector2f(140.f, 40.f),
+        Color(80, 70, 50),
+        uiFont, "Oil"
+    );
+
+    Button menuButton(
+        Vector2f(1720.f, 760.f),
+        Vector2f(140.f, 40.f),
+        Color(90, 90, 90),
+        uiFont, "Menu"
+    );
+
+    /*Text productionTitle(uiFont);
+    productionTitle.setString("Production");
+    productionTitle.setCharacterSize(22);
+    productionTitle.setFillColor(Color::White);
+    productionTitle.setPosition(Vector2f(1300.f, 220.f));*/
+    Panel prod_panel(Vector2f(1280.f, 200.f));
+
+    Text productionTitle = makeText("Production", prod_panel.nextRowPosition());
+
+     //RectangleShape prod_panel(Vector2f(320.f, 260.f));
+     //prod_panel.setPosition(Vector2f(1280.f, 200.f));
+     //prod_panel.setFillColor(Color(45, 45, 60));
     
-   
+
+     Vector2f setProdButtonStart(1320.f, 250.f);
+
+     Button setProdButton(
+         prod_panel.nextRowPosition(),
+            
+        Vector2f(200.f, 40.f),
+        Color(90, 90, 90),
+        uiFont, "Set Annual Production"
+
+    );
+
+    vector<ProductionItem> productionItems = {
+           {"Jets" , 0},
+           {"Tanks" , 0},
+           {"Troops" , 0},
+           {"Trucks" , 0},
+           {"Industrial Robots" , 0},
+           {"Cars" , 0},
+    };
+
+
+    Text setProd = makeText("*Production has not\n"
+                            "been allocated yet.*",
+                   prod_panel.nextRowPosition());
+
+    prod_panel.resizeForRows(3 + static_cast<int>(productionItems.size()));
+
+    bool showSetProdText = true;
+
+    vector<MenuButton> menuButtons = {
+        {Button(menuButtonStart, 
+                buttonSize, 
+                Color(90, 90, 90),
+                uiFont, 
+                "Production"
+                ),
+                MenuView::Production
+        },
+        {
+        Button(Vector2f(
+                menuButtonStart.x,
+                menuButtonStart.y + buttonSpacing
+            ), 
+                buttonSize,
+                Color(90,90,90), 
+                uiFont, 
+                "Diplomacy"
+            ),
+                 MenuView::Diplomacy 
+        }
+    };
+
+    //Gameloop
+
     while (window.isOpen())
     {
         float deltaTime = clock.restart().asSeconds(); //method chaining is awesome!
@@ -245,10 +481,38 @@ int main()
         //Events
         while (const optional event = window.pollEvent()) //optional; container that may or may not contain a value.
         {
-            if (event->is<Event::Closed>()) // not a pointer..."if...event contains sth..."
+            if (event->is<Event::Closed>()) { // not a pointer..."if...event contains sth..."
                 window.close();
+            }
+
+            if (const auto* mouseButton = event->getIf<Event::MouseButtonPressed>()) {
+                if (mouseButton->button == Mouse::Button::Left) {
+                    Vector2f mousePos = window.mapPixelToCoords(mouseButton->position,
+                        window.getDefaultView());
+
+                    for (MenuButton& menuButton : menuButtons) {
+                        if (menuButton.button.isClicked(mousePos)) {
+                            currentMenu = menuButton.targetMenu;
+                        }
+                    }
+
+                    if (surfaceButton.isClicked(mousePos)) {
+                        currentView = MapView::Surface;
+                    }
+
+                    if (undergroundButton.isClicked(mousePos)) {
+                        currentView = MapView::Underground;
+                    }
+
+                    if (setProdButton.isClicked(mousePos)) {
+                        showSetProdText = false;
+
+                    }
+                }
+                
+            }
+            
         }
-        
         //Camera input
         if (Keyboard::isKeyPressed(Keyboard::Key::Tab)) {
             toggle_map_view(currentView);
@@ -283,15 +547,54 @@ int main()
 
                 Tile& tile = world.get(x, y);
                 sq_tile.setFillColor(get_tile_color(tile, currentView));
-                
+
                 window.draw(sq_tile);
             }
         }
         window.draw(capitalMarker);
-   
-       //Display
-        window.display();
-    }
 
+
+        //Draw buttons
+        window.setView(window.getDefaultView());
+
+        
+
+        if (currentMenu == MenuView::Production) {
+            //window.draw(prod_panel);  //window.draw(sth); when sth is a SFML
+                                    //drawable type:RectangleShape, Text, etc...
+            prod_panel.draw(window);
+            window.draw(productionTitle);
+            setProdButton.draw(window);
+            if (showSetProdText) {
+                window.draw(setProd);
+            }
+
+            Vector2f prodListStart(1320.f, 340.f);
+
+            for (int i = 0; i < productionItems.size(); i++) {
+                Text row(uiFont);
+                row.setString(productionItems[i].name + ": " +
+                    to_string(productionItems[i].percentage) + "%");
+                row.setCharacterSize(18);
+                row.setFillColor(Color::White);
+                row.setPosition(stackedPosition(prodListStart,
+                                                i,
+                                                28.f ));
+                window.draw(row);
+            }
+        }
+
+        menuButton.draw(window);
+        surfaceButton.draw(window);
+        undergroundButton.draw(window);
+       
+        for (const MenuButton& menuButton : menuButtons) {
+            menuButton.button.draw(window);
+        }
+
+            //Display
+            window.display();
+        
+    }
     return 0;
 }
