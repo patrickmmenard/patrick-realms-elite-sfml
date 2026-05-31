@@ -66,8 +66,6 @@ struct GameState {
     double targetPopulationPerTile = 5000.0;
 };
 
-
-
 void toggle_map_view(MapView& currentView) {
     if (currentView == MapView::Surface) {
         currentView = MapView::Underground;
@@ -77,10 +75,13 @@ void toggle_map_view(MapView& currentView) {
     }
 }
 
+const int NO_OWNER = -1;
+const int PLAYER_ID = 0;
+
 struct Tile {                           // in a struct, members are public by default.
     TerrainType terrain = TerrainType::Plain;
     ResourceType resource = ResourceType::None;
-    int ownerId = -1;
+    int ownerId = NO_OWNER;
 };
 
 class Grid {                            //in a class, members are private by default. Classes are blueprints/types.
@@ -125,6 +126,21 @@ public:
         get(x, y).ownerId = -1;
     }
 };
+
+int starting_square_side(double population, double targetPopulationPerTile) {
+    int tilesNeeded = static_cast<int>(ceil(population / targetPopulationPerTile));
+    return static_cast<int>(ceil(sqrt(tilesNeeded)));
+}
+
+void claim_starting_tiles(Grid& world, pair<int,int> capital, int ownerId, int sideSize ) {
+    for (int y = capital.second - sideSize / 2; y <= capital.second + sideSize / 2; y++) {
+        for (int x = capital.first - sideSize / 2; x <= capital.first + sideSize / 2; x++) {
+            if (world.isInside(x,y)) {
+                world.get(x, y).ownerId = ownerId;
+            }
+        }
+    }
+}
 
 // ===== Economy model =====
 // EconomyStart, Economy, EconomyLine, EconomyRow, Nation
@@ -435,6 +451,9 @@ Color get_tile_color(const Tile& tile, MapView currentView) {
     if (currentView == MapView::Surface && tile.terrain == TerrainType::Water) {
         return Color::Blue;
     }
+    else if (currentView == MapView::Surface && tile.ownerId == PLAYER_ID) {
+        return Color(60, 140, 70);
+    }
     else if (currentView == MapView::Surface) {
         return Color(15,90,30);
     }
@@ -471,7 +490,7 @@ int main()
     int grid_height = world.getHeight();
 
     pair<int, int> playerCapital = random_coord(world);
-    world.get(playerCapital.first, playerCapital.second).ownerId = 0;
+    world.get(playerCapital.first, playerCapital.second).ownerId = PLAYER_ID;
     D_PostEvent(eventBuffer, { "Capital founded" });
 
     Economy nationalEconomy({
@@ -488,6 +507,9 @@ int main()
         1,
         100000
     });
+
+    int sideSize = starting_square_side(nationalEconomy.population, gameState.targetPopulationPerTile);
+    claim_starting_tiles(world, playerCapital, PLAYER_ID, sideSize);
 
     //vector<EconomySector> 
 
@@ -570,6 +592,10 @@ int main()
         text.setPosition(position);
         return text;
         };
+
+    Text dayText = makeText("", Vector2f(860.f, 20.f));
+    Text yearText = makeText("", Vector2f(960.f, 20.f));
+
 
     Vector2f mapButtonStart(1620.f, 80.f);
 
@@ -925,9 +951,23 @@ int main()
             // Update / Simulation
             gameState.dayTimer += deltaTime;
 
+            if (gameState.dayTimer >= gameState.normalSecondsPerDay) {
+                advance_days(gameState, nationalEconomy, 1);
+                gameState.dayTimer = 0.f;
+            };
+
             //Draw
             window.clear();
             window.setView(camera);
+
+            float visibleTilesWide = camera.getSize().x / sq_tile_size;
+
+            if (visibleTilesWide > 60.f) {
+                sq_tile.setOutlineThickness(0.f);
+            }
+            else {
+                sq_tile.setOutlineThickness(1.f);
+            }
 
             for (int y = 0; y < world.getHeight(); y++) {
                 for (int x = 0; x < world.getWidth(); x++) {
@@ -943,6 +983,12 @@ int main()
 
             //Draw buttons
             window.setView(window.getDefaultView());
+
+            dayText.setString("Day: " + to_string(gameState.day));
+            yearText.setString("Year: " + to_string(gameState.year));
+
+            window.draw(dayText);
+            window.draw(yearText);
 
             if (currentMenu == MenuView::Production) {
                 //window.draw(prod_panel);  //window.draw(sth); when sth is a SFML
@@ -1042,5 +1088,6 @@ int main()
             window.display();
 
     }
+    
     return 0;
 }
